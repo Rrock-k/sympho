@@ -36,6 +36,14 @@ export class Orchestrator {
   private claimed = new Set<string>();
   private retryAttempts = new Map<string, RetryEntry>();
   private completed = new Set<string>();
+  private completedIssues = new Map<string, {
+    identifier: string;
+    title: string;
+    costUsd: number;
+    elapsed: string;
+    turns: number;
+    error: string | null;
+  }>();
   private agentTotals: TokenUsage & { secondsRunning: number; costUsd: number } = {
     inputTokens: 0,
     outputTokens: 0,
@@ -175,20 +183,41 @@ export class Orchestrator {
         status: "running",
         turn: entry.turnCount,
         maxTurns,
-        costUsd: this.agentTotals.costUsd,
+        costUsd: entry.costUsd,
         elapsed: formatElapsed(entry.startedAt),
+        lastEvent: entry.lastEvent,
       });
     }
 
     for (const entry of this.retryAttempts.values()) {
+      // Don't show retry as separate row if it's just a continuation check (error=null)
+      // — it will appear as completed instead
+      if (!entry.error) continue;
       issues.push({
         issueId: entry.issueId,
         issueIdentifier: entry.identifier,
         title: this.issueTitles.get(entry.issueId) ?? "",
-        status: entry.error ? "retrying" : "done",
+        status: "retrying",
         attempt: entry.attempt,
         error: entry.error,
         retryAt: new Date(entry.dueAtMs).toLocaleTimeString(),
+      });
+    }
+
+    // Show completed issues that are not currently running or retrying
+    for (const [id, info] of this.completedIssues) {
+      if (this.running.has(id)) continue;
+      if (this.retryAttempts.has(id) && this.retryAttempts.get(id)!.error) continue;
+      issues.push({
+        issueId: id,
+        issueIdentifier: info.identifier,
+        title: info.title,
+        status: info.error ? "failed" : "done",
+        turn: info.turns,
+        maxTurns,
+        costUsd: info.costUsd,
+        elapsed: info.elapsed,
+        error: info.error,
       });
     }
 
@@ -353,6 +382,7 @@ export class Orchestrator {
       lastEventAt: null,
       lastMessage: null,
       sessionId: null,
+      costUsd: this.completedIssues.get(issue.id)?.costUsd ?? 0,
       tokens: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
       abortController,
     };
@@ -403,6 +433,15 @@ export class Orchestrator {
       entry.sessionId = event.sessionId;
     }
 
+    if (event.costUsd) {
+      entry.costUsd = event.costUsd;
+    }
+
+    // "result" events mark the end of a turn
+    if (event.type === "result") {
+      entry.turnCount++;
+    }
+
     if (event.usage) {
       entry.tokens = {
         inputTokens: Math.max(entry.tokens.inputTokens, event.usage.inputTokens),
@@ -423,6 +462,17 @@ export class Orchestrator {
         this.agentTotals.totalTokens += result.tokens.totalTokens;
         this.agentTotals.costUsd += result.costUsd;
       }
+
+      // Save completed issue info for status display (accumulate cost across retries)
+      const prev = this.completedIssues.get(issue.id);
+      this.completedIssues.set(issue.id, {
+        identifier: issue.identifier,
+        title: issue.title,
+        costUsd: entry.costUsd,
+        elapsed: formatElapsed(entry.startedAt),
+        turns: (prev?.turns ?? 0) + entry.turnCount,
+        error,
+      });
     }
 
     this.running.delete(issue.id);

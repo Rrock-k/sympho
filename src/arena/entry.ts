@@ -127,6 +127,10 @@ function ensureClaudeMd(): void {
 Build the project described in the spec files under \`specs/\`.
 Read **all** \`.md\` files in the \`specs/\` directory — each one describes a feature or requirement.
 
+## IMPORTANT: Working Directory
+- **All project files (package.json, src/, etc.) MUST be created in the current working directory** — NOT in any subdirectory.
+- Do NOT create subdirectories like \`ARENA-1/\` or similar — work directly in the project root.
+
 ## Runtime Environment
 - Running inside a Docker container (node:22-slim)
 - \`sudo\` available for system packages (apt-get)
@@ -241,6 +245,7 @@ async function main(): Promise<void> {
       attempt: null,
       tracker,
       maxTurns: MAX_ITERATIONS,
+      workspacePath: WORK_DIR,
       signal: abortController.signal,
       onEvent: (event) => {
         // Update progress on every agent event

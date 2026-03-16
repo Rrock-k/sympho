@@ -66,6 +66,7 @@ export interface RunningEntry {
   lastEventAt: Date | null;
   lastMessage: string | null;
   sessionId: string | null;
+  costUsd: number;
   tokens: TokenUsage;
   abortController: AbortController;
 }

@@ -19,6 +19,7 @@ export interface StatusIssue {
   error?: string | null;
   attempt?: number;
   retryAt?: string;
+  lastEvent?: string | null;
 }
 
 export interface StatusSnapshot {
@@ -63,12 +64,15 @@ export class StatusWriter {
         const icon = STATUS_ICON[issue.status] ?? "❓";
         const id = issue.issueIdentifier;
         const title = issue.title.length > 40 ? issue.title.slice(0, 37) + "..." : issue.title;
-        const progress = issue.turn ? `turn ${issue.turn}/${issue.maxTurns ?? "?"}` : "—";
+        // Show turn 1 while first turn is running (turnCount increments on completion)
+        const displayTurn = issue.status === "running" ? (issue.turn ?? 0) + 1 : issue.turn;
+        const progress = displayTurn != null ? `turn ${displayTurn}/${issue.maxTurns ?? "?"}` : "—";
         const cost = issue.costUsd ? `$${issue.costUsd.toFixed(2)}` : "—";
         const time = issue.elapsed ?? "—";
         let note = "";
         if (issue.error) note = issue.error.slice(0, 30);
-        if (issue.status === "retrying" && issue.retryAt) note = `retry at ${issue.retryAt}`;
+        else if (issue.status === "retrying" && issue.retryAt) note = `retry at ${issue.retryAt}`;
+        else if (issue.lastEvent) note = issue.lastEvent;
 
         lines.push(`| ${icon} ${issue.status} | **${id}** ${title} | ${progress} | ${cost} | ${time} | ${note} |`);
       }
