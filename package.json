@@ -5,11 +5,13 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "sympho": "dist/cli.js"
+    "sympho": "dist/cli.js",
+    "sympho-arena": "dist/arena/entry.js"
   },
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/cli.ts",
+    "arena": "tsx src/arena/entry.ts",
     "start": "node dist/cli.js",
     "lint": "tsc --noEmit",
     "test": "vitest run",
