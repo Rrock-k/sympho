@@ -18,6 +18,9 @@ import { runAgent } from "./agent/index.js";
 import { removeWorkspace } from "./workspace/index.js";
 import { WorkflowStore } from "./workflow.js";
 import { logger } from "./logger.js";
+import { StatusWriter, formatElapsed } from "./status-writer.js";
+import type { StatusSnapshot, StatusIssue } from "./status-writer.js";
+import { dirname } from "node:path";
 
 export interface OrchestratorOptions {
   workflowPath: string;
@@ -43,10 +46,16 @@ export class Orchestrator {
 
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
+  private statusWriter: StatusWriter;
+  private lastStatusFlushMs = 0;
+
+  // Track all known task titles for status display
+  private issueTitles = new Map<string, string>();
 
   constructor(opts: OrchestratorOptions) {
     this.workflowStore = new WorkflowStore(opts.workflowPath);
     this.trackerFactory = opts.trackerFactory;
+    this.statusWriter = new StatusWriter(dirname(opts.workflowPath));
   }
 
   async start(): Promise<void> {
@@ -142,6 +151,60 @@ export class Orchestrator {
     };
   }
 
+  // --- Status ---
+
+  private flushStatus(force = false): void {
+    const now = Date.now();
+    if (!force && now - this.lastStatusFlushMs < 2000) return;
+    this.lastStatusFlushMs = now;
+
+    const snapshot = this.buildStatusSnapshot();
+    this.statusWriter.write(snapshot);
+  }
+
+  private buildStatusSnapshot(): StatusSnapshot {
+    const issues: StatusIssue[] = [];
+    const config = this.getConfigSafe();
+    const maxTurns = config?.agent.max_turns ?? 20;
+
+    for (const entry of this.running.values()) {
+      issues.push({
+        issueId: entry.issueId,
+        issueIdentifier: entry.issueIdentifier,
+        title: entry.issue.title,
+        status: "running",
+        turn: entry.turnCount,
+        maxTurns,
+        costUsd: this.agentTotals.costUsd,
+        elapsed: formatElapsed(entry.startedAt),
+      });
+    }
+
+    for (const entry of this.retryAttempts.values()) {
+      issues.push({
+        issueId: entry.issueId,
+        issueIdentifier: entry.identifier,
+        title: this.issueTitles.get(entry.issueId) ?? "",
+        status: entry.error ? "retrying" : "done",
+        attempt: entry.attempt,
+        error: entry.error,
+        retryAt: new Date(entry.dueAtMs).toLocaleTimeString(),
+      });
+    }
+
+    return {
+      issues,
+      totals: {
+        costUsd: this.agentTotals.costUsd,
+        secondsRunning: this.agentTotals.secondsRunning +
+          Array.from(this.running.values()).reduce(
+            (sum, r) => sum + (Date.now() - r.startedAt.getTime()) / 1000,
+            0
+          ),
+      },
+    };
+  }
+
   // --- Private ---
 
   private getConfig(): ServiceConfig {
@@ -211,6 +274,7 @@ export class Orchestrator {
 
     // 5. Dispatch
     await this.dispatch(config, tracker, candidates);
+    this.flushStatus(true);
   }
 
   private sortCandidates(issues: Issue[]): Issue[] {
@@ -274,6 +338,7 @@ export class Orchestrator {
     log.info({ attempt }, "Dispatching issue");
 
     this.claimed.add(issue.id);
+    this.issueTitles.set(issue.id, issue.title);
 
     const abortController = new AbortController();
     const entry: RunningEntry = {
@@ -303,7 +368,10 @@ export class Orchestrator {
       attempt,
       tracker,
       signal: abortController.signal,
-      onEvent: (event) => this.handleAgentEvent(issue.id, event),
+      onEvent: (event) => {
+        this.handleAgentEvent(issue.id, event);
+        this.flushStatus();
+      },
     })
       .then((result) => {
         log.info(
@@ -311,10 +379,12 @@ export class Orchestrator {
           "Agent run completed"
         );
         this.onWorkerExit(issue, null, result);
+        this.flushStatus(true);
       })
       .catch((err) => {
         log.error({ error: (err as Error).message }, "Agent run failed");
         this.onWorkerExit(issue, (err as Error).message, null);
+        this.flushStatus(true);
       });
   }
 

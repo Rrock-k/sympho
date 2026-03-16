@@ -4,11 +4,12 @@
  * Sympho CLI — entry point for the orchestrator daemon.
  */
 
-import { resolve } from "node:path";
+import { resolve, dirname } from "node:path";
 import { Orchestrator } from "./orchestrator.js";
 import { LinearTracker } from "./tracker/linear.js";
 import { GitHubTracker } from "./tracker/github.js";
 import { MemoryTracker } from "./tracker/memory.js";
+import { FileTracker } from "./tracker/file.js";
 import type { ServiceConfig } from "./config.js";
 import type { Tracker } from "./tracker/tracker.js";
 import { logger } from "./logger.js";
@@ -44,7 +45,7 @@ Environment:
   return { workflowPath: resolve(workflowPath) };
 }
 
-function createTracker(config: ServiceConfig): Tracker {
+function createTracker(config: ServiceConfig, workflowDir: string): Tracker {
   switch (config.tracker.kind) {
     case "linear":
       return new LinearTracker({
@@ -61,6 +62,14 @@ function createTracker(config: ServiceConfig): Tracker {
         activeStates: config.tracker.active_states,
         terminalStates: config.tracker.terminal_states,
       });
+    case "file":
+      return new FileTracker({
+        baseDir: workflowDir,
+        tasksFile: config.tracker.tasks_file!,
+        backlogFile: config.tracker.backlog_file!,
+        activeStates: config.tracker.active_states,
+        terminalStates: config.tracker.terminal_states,
+      });
     case "memory":
       return new MemoryTracker();
     default:
@@ -71,9 +80,10 @@ function createTracker(config: ServiceConfig): Tracker {
 async function main() {
   const args = parseArgs(process.argv);
 
+  const workflowDir = dirname(args.workflowPath);
   const orchestrator = new Orchestrator({
     workflowPath: args.workflowPath,
-    trackerFactory: createTracker,
+    trackerFactory: (config) => createTracker(config, workflowDir),
   });
 
   // Graceful shutdown

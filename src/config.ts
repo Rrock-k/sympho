@@ -23,11 +23,13 @@ const coerceInt = z.union([z.number(), z.string().transform(Number)]).pipe(z.num
 const optionalCoerceInt = coerceInt.optional();
 
 const TrackerSchema = z.object({
-  kind: z.enum(["linear", "github", "memory"]).default("linear"),
+  kind: z.enum(["linear", "github", "memory", "file"]).default("linear"),
   endpoint: z.string().optional(),
   api_key: z.string().optional(),
   project_slug: z.string().optional(),
   repo: z.string().optional(),
+  tasks_file: z.string().optional(),
+  backlog_file: z.string().optional(),
   active_states: z.array(z.string()).default(["Todo", "In Progress"]),
   terminal_states: z.array(z.string()).default(["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]),
 }).default({});
@@ -115,6 +117,11 @@ export function validateConfigForDispatch(config: ServiceConfig): string | null 
     const apiKey = resolveEnvVar(config.tracker.api_key);
     if (!apiKey) return "missing tracker.api_key (set GITHUB_TOKEN)";
     if (!config.tracker.repo) return "missing tracker.repo";
+  }
+
+  if (config.tracker.kind === "file") {
+    if (!config.tracker.tasks_file) return "missing tracker.tasks_file";
+    if (!config.tracker.backlog_file) return "missing tracker.backlog_file";
   }
 
   if (!config.agent.command) return "missing agent.command";
