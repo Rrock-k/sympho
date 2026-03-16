@@ -34,6 +34,8 @@ export interface AgentRunOptions {
   onEvent?: (event: AgentEvent) => void;
   signal?: AbortSignal;
   maxTurns?: number;
+  /** Override workspace path — skip prepareWorkspace and use this directly */
+  workspacePath?: string;
 }
 
 export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
@@ -49,19 +51,21 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   const maxTurns = opts.maxTurns ?? config.agent.max_turns;
   const log = issueLogger(issue.id, issue.identifier);
 
-  // 1. Prepare workspace
-  const wsPath = await prepareWorkspace(config, issue.identifier, {
+  // 1. Prepare workspace (skip if caller provides a fixed path, e.g. arena mode)
+  const wsPath = opts.workspacePath ?? await prepareWorkspace(config, issue.identifier, {
     issueId: issue.id,
     issueIdentifier: issue.identifier,
   });
 
   // 2. Run before_run hook
-  const hookOk = await runLifecycleHook(config, "before_run", wsPath, {
-    issueId: issue.id,
-    issueIdentifier: issue.identifier,
-  });
-  if (!hookOk) {
-    throw new Error("before_run hook failed");
+  if (!opts.workspacePath) {
+    const hookOk = await runLifecycleHook(config, "before_run", wsPath, {
+      issueId: issue.id,
+      issueIdentifier: issue.identifier,
+    });
+    if (!hookOk) {
+      throw new Error("before_run hook failed");
+    }
   }
 
   const result: AgentRunResult = {
@@ -112,6 +116,9 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
         throw new Error(`Agent turn ${turn} failed: ${turnResult.error}`);
       }
 
+      // Check abort signal (may have been triggered by onEvent callback)
+      if (signal?.aborted) break;
+
       // Check if issue still active
       if (turn < maxTurns) {
         const shouldContinue = await checkIssueContinuation(currentIssue, tracker, config, log);
@@ -122,11 +129,13 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
       }
     }
   } finally {
-    // 4. Run after_run hook (always, failure ignored)
-    await runLifecycleHook(config, "after_run", wsPath, {
-      issueId: issue.id,
-      issueIdentifier: issue.identifier,
-    });
+    // 4. Run after_run hook (always, failure ignored — skip in arena mode)
+    if (!opts.workspacePath) {
+      await runLifecycleHook(config, "after_run", wsPath, {
+        issueId: issue.id,
+        issueIdentifier: issue.identifier,
+      });
+    }
   }
 
   return result;
@@ -267,8 +276,9 @@ function parseLine(line: string): AgentEvent | null {
     // Extract session_id from result events
     if (raw.session_id) event.sessionId = String(raw.session_id);
 
-    // Extract cost
-    if (typeof raw.cost_usd === "number") event.costUsd = raw.cost_usd;
+    // Extract cost (claude CLI uses total_cost_usd in result events)
+    if (typeof raw.total_cost_usd === "number") event.costUsd = raw.total_cost_usd;
+    else if (typeof raw.cost_usd === "number") event.costUsd = raw.cost_usd;
 
     // Extract usage
     const usage = raw.usage as Record<string, unknown> | undefined;
