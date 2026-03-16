@@ -265,6 +265,7 @@ async function main(): Promise<void> {
           if (!completed && event.content.includes(COMPLETION_SIGNAL)) {
             log("Legacy completion signal detected — stopping agent");
             completed = true;
+            tracker.markIssueDone(issue.id);
             abortController.abort();
           }
         } else if (event.type === "tool_use") {
@@ -279,6 +280,7 @@ async function main(): Promise<void> {
         if (!completed && progress.isDone()) {
           log("Completion file (.arena/done) detected — stopping agent");
           completed = true;
+          tracker.markIssueDone(issue.id);
           abortController.abort();
         }
 
