@@ -20,7 +20,7 @@ import { WorkflowStore } from "./workflow.js";
 import { logger } from "./logger.js";
 import { StatusWriter, formatElapsed } from "./status-writer.js";
 import type { StatusSnapshot, StatusIssue } from "./status-writer.js";
-import { dirname } from "node:path";
+import { dirname, resolve, isAbsolute } from "node:path";
 
 export interface OrchestratorOptions {
   workflowPath: string;
@@ -29,6 +29,7 @@ export interface OrchestratorOptions {
 
 export class Orchestrator {
   private workflowStore: WorkflowStore;
+  private workflowDir: string;
   private trackerFactory: (config: ServiceConfig) => Tracker;
 
   // Runtime state
@@ -61,9 +62,10 @@ export class Orchestrator {
   private issueTitles = new Map<string, string>();
 
   constructor(opts: OrchestratorOptions) {
+    this.workflowDir = dirname(opts.workflowPath);
     this.workflowStore = new WorkflowStore(opts.workflowPath);
     this.trackerFactory = opts.trackerFactory;
-    this.statusWriter = new StatusWriter(dirname(opts.workflowPath));
+    this.statusWriter = new StatusWriter(this.workflowDir);
   }
 
   async start(): Promise<void> {
@@ -238,7 +240,14 @@ export class Orchestrator {
 
   private getConfig(): ServiceConfig {
     const workflow = this.workflowStore.get();
-    return loadConfig(workflow);
+    const config = loadConfig(workflow);
+
+    // Resolve workspace.root relative to WORKFLOW.md directory
+    if (!isAbsolute(config.workspace.root)) {
+      config.workspace.root = resolve(this.workflowDir, config.workspace.root);
+    }
+
+    return config;
   }
 
   private getConfigSafe(): ServiceConfig | null {
