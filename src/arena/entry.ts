@@ -226,6 +226,7 @@ async function main(): Promise<void> {
   log(`Working on: ${issue.identifier} — ${issue.title}`);
 
   let completed = false;
+  const abortController = new AbortController();
 
   // Spec change detection
   let prevSpecHash = tracker.getSpecHash();
@@ -240,6 +241,7 @@ async function main(): Promise<void> {
       attempt: null,
       tracker,
       maxTurns: MAX_ITERATIONS,
+      signal: abortController.signal,
       onEvent: (event) => {
         // Update progress on every agent event
         const iteration = currentIteration || 1;
@@ -255,9 +257,10 @@ async function main(): Promise<void> {
           });
 
           // Check for legacy completion signal in output
-          if (event.content.includes(COMPLETION_SIGNAL)) {
-            log("Legacy completion signal detected in output");
+          if (!completed && event.content.includes(COMPLETION_SIGNAL)) {
+            log("Legacy completion signal detected — stopping agent");
             completed = true;
+            abortController.abort();
           }
         } else if (event.type === "tool_use") {
           progress.write({
@@ -268,9 +271,10 @@ async function main(): Promise<void> {
         }
 
         // Check for .arena/done after each event
-        if (progress.isDone()) {
-          log("Completion file (.arena/done) detected");
+        if (!completed && progress.isDone()) {
+          log("Completion file (.arena/done) detected — stopping agent");
           completed = true;
+          abortController.abort();
         }
 
         // Live spec change detection
