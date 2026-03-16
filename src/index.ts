@@ -15,6 +15,7 @@ export type { AgentRunResult, AgentRunOptions } from "./agent/index.js";
 
 export type { Tracker } from "./tracker/tracker.js";
 export { LinearTracker } from "./tracker/linear.js";
+export { GitHubTracker } from "./tracker/github.js";
 export { MemoryTracker } from "./tracker/memory.js";
 
 export {

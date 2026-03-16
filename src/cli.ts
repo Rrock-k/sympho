@@ -7,6 +7,7 @@
 import { resolve } from "node:path";
 import { Orchestrator } from "./orchestrator.js";
 import { LinearTracker } from "./tracker/linear.js";
+import { GitHubTracker } from "./tracker/github.js";
 import { MemoryTracker } from "./tracker/memory.js";
 import type { ServiceConfig } from "./config.js";
 import type { Tracker } from "./tracker/tracker.js";
@@ -50,6 +51,13 @@ function createTracker(config: ServiceConfig): Tracker {
         endpoint: config.tracker.endpoint,
         apiKey: config.tracker.api_key!,
         projectSlug: config.tracker.project_slug!,
+        activeStates: config.tracker.active_states,
+        terminalStates: config.tracker.terminal_states,
+      });
+    case "github":
+      return new GitHubTracker({
+        token: config.tracker.api_key!,
+        repo: config.tracker.repo!,
         activeStates: config.tracker.active_states,
         terminalStates: config.tracker.terminal_states,
       });
