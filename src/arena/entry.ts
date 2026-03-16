@@ -231,6 +231,7 @@ async function main(): Promise<void> {
   let prevSpecHash = tracker.getSpecHash();
 
   // Run sympho agent loop
+  let currentIteration = 0;
   try {
     const result = await runAgent({
       config,
@@ -241,10 +242,11 @@ async function main(): Promise<void> {
       maxTurns: MAX_ITERATIONS,
       onEvent: (event) => {
         // Update progress on every agent event
-        const iteration = result?.turnCount ?? 1;
+        const iteration = currentIteration || 1;
 
-        if (event.type === "result" && event.subtype === "success") {
-          // Don't write completed yet — check done file first
+        if (event.type === "result") {
+          currentIteration++;
+          // Don't write completed for success — check done file first
         } else if (event.type === "assistant" && event.content) {
           progress.write({
             state: "coding",
